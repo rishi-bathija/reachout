@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Connection {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  name          String
+  profileUrl    String?   @map("profile_url")
+  company       String
+  role          String
+  jobUrl        String?   @map("job_url")
+  jobTitle      String?   @map("job_title")
+  notes         String?
+  status        String    @default("PENDING")
+  dateSent      DateTime  @default(now()) @map("date_sent")
+  dateAccepted  DateTime? @map("date_accepted")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  
+  messages          Message[]
+  generatedMessages GeneratedMessage[]
+  
+  @@map("connections")
+}
+
+model Message {
+  id           String     @id @default(uuid()) @db.Uuid
+  connectionId String     @map("connection_id") @db.Uuid
+  content      String
+  sender       String     // 'USER' or 'THEM'
+  createdAt    DateTime   @default(now()) @map("created_at")
+  
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  
+  @@map("messages")
+}
+
+model GeneratedMessage {
+  id           String     @id @default(uuid()) @db.Uuid
+  connectionId String     @map("connection_id") @db.Uuid
+  message      String
+  generatedAt  DateTime   @default(now()) @map("generated_at")
+  used         Boolean    @default(false)
+  
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  
+  @@map("generated_messages")
+}
