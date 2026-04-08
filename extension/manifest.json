@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "ReachOutFlow",
+  "version": "0.1.0",
+  "description": "Save LinkedIn connections to ReachOutFlow",
+  "permissions": ["storage", "scripting", "activeTab", "sidePanel", "tabs"],
+  "host_permissions": [
+    "https://*.linkedin.com/*",
+    "http://localhost:3000/*",
+    "https://your-domain.com/*"
+  ],
+  "action": {
+    "default_title": "ReachOutFlow",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:3000/auth/extension*", "https://your-domain.com/auth/extension*"],
+      "js": ["link-listener.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["content-linkedin.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/notifications/*"],
+      "js": ["notifications-scraper.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.linkedin.com/mynetwork/*"],
+      "js": ["mynetwork-scraper.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
@@ -20,18 +21,22 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setNotice('')
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    if (error) {
-      setError(error.message)
+      if (error) {
+        setError(error.message)
+      } else {
+        router.push('/dashboard')
+        router.refresh()
+      }
+    } finally {
       setLoading(false)
-    } else {
-      router.push('/dashboard')
-      router.refresh()
     }
   }
 
@@ -39,20 +44,33 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setNotice('')
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
 
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      alert('Check your email for confirmation link!')
+      if (error) {
+        setError(error.message)
+        return
+      }
+
+      const existingAccount =
+        data.user &&
+        Array.isArray(data.user.identities) &&
+        data.user.identities.length === 0
+
+      if (existingAccount) {
+        setError('This email is already registered. Please sign in instead.')
+      } else {
+        setNotice('Check your email for confirmation link.')
+      }
+    } finally {
       setLoading(false)
     }
   }
@@ -73,6 +91,11 @@ export default function LoginPage() {
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
                 {error}
+              </div>
+            )}
+            {notice && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm">
+                {notice}
               </div>
             )}
             
