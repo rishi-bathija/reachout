@@ -44,6 +44,7 @@ export default function FollowUpForm({ connectionId, nextFollowUpAt }: Props) {
       if (!response.ok) {
         throw new Error(data.error ?? 'Failed to update follow-up')
       }
+      setValue(toLocalDateTimeValue(nextValue))
       router.refresh()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update follow-up')

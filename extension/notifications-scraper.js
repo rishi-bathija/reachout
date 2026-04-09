@@ -55,7 +55,6 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'SCRAPE_ACCEPTANCES') return
     const acceptances = collectAcceptances()
-    console.log('[ReachOutFlow] Notifications scraper found', acceptances)
     sendResponse({ acceptances })
     return true
   })

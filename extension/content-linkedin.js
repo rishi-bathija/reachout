@@ -104,10 +104,25 @@
     const payload = getProfileData()
     if (!payload.name) return
 
-    chrome.runtime.sendMessage({
-      type: 'SET_PENDING_CONNECTION',
-      payload,
-      openPopup: true,
-    })
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: 'SET_PENDING_CONNECTION',
+          payload,
+          openPopup: true,
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error('[ReachOutFlow] sendMessage failed', chrome.runtime.lastError)
+            return
+          }
+          if (!response || !response.success) {
+            console.warn('[ReachOutFlow] sendMessage response invalid', response)
+          }
+        }
+      )
+    } catch (error) {
+      console.error('[ReachOutFlow] sendMessage exception', error)
+    }
   })
 })()

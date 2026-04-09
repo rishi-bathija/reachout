@@ -43,43 +43,63 @@ async function generateWithGemini(apiKey: string, prompt: string): Promise<{
   status: number
   error: unknown
 }> {
-  const geminiResponse = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 25000)
+
+  try {
+    const geminiResponse = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+        signal: controller.signal,
+      }
+    )
+
+    if (!geminiResponse.ok) {
+      const mapped = await mapGeminiError(geminiResponse)
+      return { ok: false, status: mapped.status, error: mapped.error }
     }
-  )
 
-  if (!geminiResponse.ok) {
-    const mapped = await mapGeminiError(geminiResponse)
-    return { ok: false, status: mapped.status, error: mapped.error }
-  }
+    const result = (await geminiResponse.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    }
 
-  const result = (await geminiResponse.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-  }
+    const rawText = result.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text ?? '')
+      .join('\n')
+      .trim()
 
-  const rawText = result.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text ?? '')
-    .join('\n')
-    .trim()
+    if (!rawText) {
+      return {
+        ok: false,
+        status: 502,
+        error: {
+          code: 'UPSTREAM_ERROR',
+          message: 'AI returned an empty response. Please retry.',
+        },
+      }
+    }
 
-  if (!rawText) {
+    return { ok: true, text: rawText }
+  } catch (error: unknown) {
+    const isAbort = error instanceof Error && error.name === 'AbortError'
     return {
       ok: false,
-      status: 502,
-      error: {
-        code: 'UPSTREAM_ERROR',
-        message: 'AI returned an empty response. Please retry.',
-      },
+      status: isAbort ? 504 : 502,
+      error: isAbort
+        ? { code: 'TIMEOUT', message: 'AI request timed out. Please retry.' }
+        : error,
     }
+  } finally {
+    clearTimeout(timeout)
   }
-
-  return { ok: true, text: rawText }
 }
 
 export async function POST(
@@ -94,7 +114,7 @@ export async function POST(
       return NextResponse.json(
         {
           error: {
-            code: 'UNAUTHORIZED',
+            code: 'CONFIGURATION_ERROR',
             message: 'AI service not configured. Add GEMINI_API_KEY to environment variables.',
           },
         },
@@ -110,6 +130,13 @@ export async function POST(
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    let body: { tone?: string; mode?: ReplyMode } = {}
+    try {
+      body = (await request.json()) as { tone?: string; mode?: ReplyMode }
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
     const profile = await prisma.userProfile.findUnique({
@@ -148,7 +175,6 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    const body = (await request.json()) as { tone?: string; mode?: ReplyMode }
     const tone = body.tone && TONE_PROMPTS[body.tone] ? body.tone : 'professional'
     const requestedMode: ReplyMode =
       body.mode === 'reply' || body.mode === 'follow_up' || body.mode === 'auto'
@@ -179,9 +205,6 @@ export async function POST(
       effectiveMode === 'reply'
         ? 'Generate a direct reply to the latest THEM message.'
         : 'Generate a polite follow-up from USER to nudge for an update.'
-
-    console.log('intentinstruction', intentInstruction);
-    console.log('conversation', conversation);
 
 
     const basePrompt = [

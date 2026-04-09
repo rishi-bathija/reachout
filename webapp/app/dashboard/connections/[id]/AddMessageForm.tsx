@@ -43,8 +43,9 @@ export default function AddMessageForm({ connectionId }: { connectionId: string 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label>Add Message</Label>
+        <Label htmlFor="message-content">Add Message</Label>
         <Textarea
+          id="message-content"
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Type your message here..."

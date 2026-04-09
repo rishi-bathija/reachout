@@ -4,17 +4,25 @@ let existingConnections = []
 let selectedSource = null
 let lastCompanyQuery = ''
 let companyFetchTimer = null
+let companyFetchController = null
 let savingConnection = false
 
 function loadState() {
   chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (response) => {
-    if (response && response.success) {
-      config = response.config
-      chrome.storage.local.get(['pendingConnection'], (result) => {
-        pendingConnection = result.pendingConnection || null
-        updateUI()
-      })
+    if (chrome.runtime.lastError || !response || !response.success) {
+      config = { apiUrl: '', token: null, linkedAt: null }
+    } else {
+      config = response.config || { apiUrl: '', token: null, linkedAt: null }
     }
+
+    chrome.storage.local.get(['pendingConnection'], (result) => {
+      if (chrome.runtime.lastError) {
+        pendingConnection = null
+      } else {
+        pendingConnection = result.pendingConnection || null
+      }
+      updateUI()
+    })
   })
 }
 
@@ -84,20 +92,40 @@ function updateUI() {
 
     if (existingConnections.length > 0) {
       reuseCard.style.display = 'block'
-      reuseList.innerHTML = existingConnections
-        .map((conn) => {
-          const jobTitle = conn.jobTitle ? ` (${conn.jobTitle})` : ''
-          return `
-            <div style="display:flex; justify-content: space-between; align-items:center; gap:8px;">
-              <div style="font-size:12px;">
-                <div style="font-weight:600;">${conn.name}${jobTitle}</div>
-                <div style="color:#6b7280;">${conn.company}</div>
-              </div>
-              <button class="reuse-btn" data-id="${conn.id}" style="width:auto; padding:6px 10px; font-size:12px;">Use</button>
-            </div>
-          `
-        })
-        .join('')
+      reuseList.innerHTML = ''
+      for (const conn of existingConnections) {
+        const item = document.createElement('div')
+        item.style.display = 'flex'
+        item.style.justifyContent = 'space-between'
+        item.style.alignItems = 'center'
+        item.style.gap = '8px'
+
+        const textContainer = document.createElement('div')
+        textContainer.style.fontSize = '12px'
+
+        const title = document.createElement('div')
+        title.style.fontWeight = '600'
+        title.textContent = conn.name + (conn.jobTitle ? ` (${conn.jobTitle})` : '')
+
+        const company = document.createElement('div')
+        company.style.color = '#6b7280'
+        company.textContent = conn.company
+
+        textContainer.appendChild(title)
+        textContainer.appendChild(company)
+
+        const button = document.createElement('button')
+        button.className = 'reuse-btn'
+        button.setAttribute('data-id', String(conn.id))
+        button.style.width = 'auto'
+        button.style.padding = '6px 10px'
+        button.style.fontSize = '12px'
+        button.textContent = 'Use'
+
+        item.appendChild(textContainer)
+        item.appendChild(button)
+        reuseList.appendChild(item)
+      }
     } else {
       reuseCard.style.display = 'none'
       reuseList.innerHTML = ''
@@ -134,22 +162,28 @@ function scheduleFetchExistingConnections(company) {
 }
 
 function fetchExistingConnections(company) {
+  if (companyFetchController) {
+    companyFetchController.abort()
+  }
+
+  companyFetchController = new AbortController()
   fetch(`${config.apiUrl}/api/connections?company=${encodeURIComponent(company)}`, {
     headers: {
       Authorization: `Bearer ${config.token}`,
     },
+    signal: companyFetchController.signal,
   })
     .then((response) => response.json())
     .then((data) => {
-      const list = Array.isArray(data)
+      existingConnections = Array.isArray(data)
         ? data
         : Array.isArray(data.data)
           ? data.data
           : (data.items || [])
-      existingConnections = list
       updateUI()
     })
-    .catch(() => {
+    .catch((error) => {
+      if (error.name === 'AbortError') return
       existingConnections = []
       updateUI()
     })
@@ -243,6 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
         role,
         profileUrl: profileUrl || undefined,
         sourceConnectionId: selectedSource.id,
+        connectionSentAt: selectedSource.connectionSentAt || undefined,
       }
       : {
         name,
@@ -252,6 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
         jobTitle: jobTitle || undefined,
         jobUrl: jobUrl || undefined,
         notes: notes || undefined,
+        connectionSentAt: pendingConnection?.connectionSentAt || undefined,
       }
 
     savingConnection = true
@@ -265,11 +301,19 @@ document.addEventListener('DOMContentLoaded', () => {
       },
       body: JSON.stringify(payload),
     })
-      .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-      .then(({ ok, data }) => {
-        if (!ok) {
-          throw new Error(data.error || 'Failed to save connection')
+      .then(async (response) => {
+        let data = null
+        try {
+          data = await response.json()
+        } catch {
+          // Invalid JSON, data remains null
         }
+        if (!response.ok) {
+          throw new Error(data?.error || `Failed to save connection (${response.status})`)
+        }
+        return data
+      })
+      .then(() => {
         chrome.storage.local.remove(['pendingConnection'], () => {
           pendingConnection = null
           selectedSource = null
@@ -290,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!target.classList.contains('reuse-btn')) return
     const id = target.getAttribute('data-id')
     if (!id) return
-    const match = existingConnections.find((conn) => conn.id === id)
+    const match = existingConnections.find((conn) => String(conn.id) === id)
     if (!match) return
     selectedSource = match
     updateUI()
@@ -302,7 +346,6 @@ document.addEventListener('DOMContentLoaded', () => {
   })
 
   document.getElementById('check-acceptances-btn').addEventListener('click', () => {
-    console.log('[ReachOutFlow] Check acceptances clicked')
     const statusEl = document.getElementById('acceptance-status')
     const listEl = document.getElementById('acceptance-list')
     statusEl.style.display = 'block'
@@ -311,7 +354,6 @@ document.addEventListener('DOMContentLoaded', () => {
     listEl.innerHTML = ''
 
     chrome.runtime.sendMessage({ type: 'CHECK_ACCEPTANCES' }, (response) => {
-      console.log('[ReachOutFlow] Acceptances response', response)
       if (!response || !response.success) {
         statusEl.className = 'status disconnected'
         statusEl.textContent = response?.error || 'Failed to check acceptances'
@@ -329,18 +371,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return
       }
 
-      listEl.innerHTML = matchedConnections
-        .map((item) => {
-          const name = item.name || 'Unknown'
-          const url = item.profileUrl || ''
-          return `
-            <li style="margin-bottom: 6px; font-size: 12px; display:flex; justify-content: space-between; align-items:center; gap:8px;">
-              <span>${name}${url ? ` - ${url}` : ''}</span>
-              <button class="reply-btn" data-id="${item.id}" style="width:auto; padding:4px 8px; font-size:12px;">Reply</button>
-            </li>
-          `
-        })
-        .join('')
+      listEl.innerHTML = ''
+      for (const item of matchedConnections) {
+        const li = document.createElement('li')
+        li.style.marginBottom = '6px'
+        li.style.fontSize = '12px'
+        li.style.display = 'flex'
+        li.style.justifyContent = 'space-between'
+        li.style.alignItems = 'center'
+        li.style.gap = '8px'
+
+        const span = document.createElement('span')
+        const name = item.name || 'Unknown'
+        const url = item.profileUrl || ''
+        span.textContent = url ? `${name} - ${url}` : name
+
+        const button = document.createElement('button')
+        button.className = 'reply-btn'
+        button.setAttribute('data-id', String(item.id))
+        button.style.width = 'auto'
+        button.style.padding = '4px 8px'
+        button.style.fontSize = '12px'
+        button.textContent = 'Reply'
+
+        li.appendChild(span)
+        li.appendChild(button)
+        listEl.appendChild(li)
+      }
     })
   })
 

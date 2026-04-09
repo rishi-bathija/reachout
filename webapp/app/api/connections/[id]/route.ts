@@ -15,10 +15,11 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = (await request.json()) as {
-      status?: string
-      nextFollowUpAt?: string | null
-      notes?: string | null
+    let body: { status?: string; nextFollowUpAt?: string | null; notes?: string | null }
+    try {
+      body = await request.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
     }
 
     // Verify connection belongs to user

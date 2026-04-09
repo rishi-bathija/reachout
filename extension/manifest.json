@@ -7,7 +7,7 @@
   "host_permissions": [
     "https://*.linkedin.com/*",
     "http://localhost:3000/*",
-    "https://your-domain.com/*"
+    "https://*.vercel.app/*"
   ],
   "action": {
     "default_title": "ReachOutFlow",
@@ -21,7 +21,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://localhost:3000/auth/extension*", "https://your-domain.com/auth/extension*"],
+      "matches": ["http://localhost:3000/auth/extension*", "https://*.vercel.app/auth/extension*"],
       "js": ["link-listener.js"],
       "run_at": "document_idle"
     },

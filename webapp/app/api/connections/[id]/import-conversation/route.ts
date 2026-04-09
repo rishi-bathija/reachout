@@ -28,6 +28,17 @@ function normalizeForCompare(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 }
 
+function splitCompareTokens(value: string): string[] {
+  return normalizeForCompare(value).split(/\s+/).filter(Boolean)
+}
+
+function tokenMatch(value: string, reference: string): boolean {
+  const valueTokens = splitCompareTokens(value)
+  const referenceTokens = splitCompareTokens(reference)
+  if (!valueTokens.length || !referenceTokens.length) return false
+  return referenceTokens.every((token) => valueTokens.includes(token))
+}
+
 function normalizeContent(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
 }
@@ -56,13 +67,12 @@ function resolveSpeaker(
   const normalizedName = normalizeForCompare(rawName)
   const normalizedConnection = normalizeForCompare(connectionName)
 
-  if (normalizedName && normalizedConnection && normalizedName.includes(normalizedConnection)) {
+  if (normalizedName && normalizedConnection && tokenMatch(normalizedName, normalizedConnection)) {
     return 'THEM'
   }
 
   for (const alias of userAliases) {
-    const normalizedAlias = normalizeForCompare(alias)
-    if (normalizedAlias && normalizedName.includes(normalizedAlias)) {
+    if (alias && tokenMatch(normalizedName, alias)) {
       return 'USER'
     }
   }
@@ -166,16 +176,24 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    const body = (await request.json()) as {
-      transcript?: string
-      userAliases?: string
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch (error: unknown) {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
-    if (!body.transcript || !body.transcript.trim()) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
+
+    const transcript = typeof (body as any).transcript === 'string' ? (body as any).transcript.trim() : ''
+    if (!transcript) {
       return NextResponse.json({ error: 'Transcript is required' }, { status: 400 })
     }
 
-    const aliases = (body.userAliases ?? '')
+    const aliasesRaw = typeof (body as any).userAliases === 'string' ? (body as any).userAliases : ''
+    const aliases = aliasesRaw
       .split(',')
       .map((v) => v.trim())
       .filter(Boolean)
@@ -210,21 +228,23 @@ export async function POST(
     }
 
     if (toInsert.length > 0) {
-      const maxOrder = await prisma.message.aggregate({
-        where: { connectionId: connection.id },
-        _max: { orderIndex: true },
-      })
+      await prisma.$transaction(async (tx) => {
+        const maxOrder = await tx.message.aggregate({
+          where: { connectionId: connection.id },
+          _max: { orderIndex: true },
+        })
 
-      const baseOrderIndex =
-        typeof maxOrder._max.orderIndex === 'number' ? maxOrder._max.orderIndex : -1
+        const baseOrderIndex =
+          typeof maxOrder._max.orderIndex === 'number' ? maxOrder._max.orderIndex : -1
 
-      await prisma.message.createMany({
-        data: toInsert.map((msg, index) => ({
-          connectionId: connection.id,
-          sender: msg.sender,
-          content: msg.content,
-          orderIndex: baseOrderIndex + index + 1,
-        })),
+        await tx.message.createMany({
+          data: toInsert.map((msg, index) => ({
+            connectionId: connection.id,
+            sender: msg.sender,
+            content: msg.content,
+            orderIndex: baseOrderIndex + index + 1,
+          })),
+        })
       })
     }
 

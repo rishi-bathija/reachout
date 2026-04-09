@@ -101,25 +101,24 @@
       <input
         type="text"
         id="api-url"
-        value="http://localhost:3000"
-        placeholder="http://localhost:3000"
+        placeholder="https://your-api-host.com"
+        autocomplete="off"
+        spellcheck="false"
       />
     </div>
-
-    <button id="open-link-btn">Open Link Flow</button>
-
     <div class="form-group" style="margin-top: 12px;">
       <label for="token-input">Paste Token (fallback)</label>
       <input
-        type="text"
+        type="password"
         id="token-input"
         placeholder="Paste token from link page"
+        autocomplete="off"
+        spellcheck="false"
       />
     </div>
-
     <button id="save-token-btn">Save Token</button>
 
-    <a href="http://localhost:3000" target="_blank" class="link">Open Dashboard</a>
+    <a id="open-dashboard-link" href="#" target="_blank" rel="noopener noreferrer" class="link">Open Dashboard</a>
   </div>
 
   <div id="linked-view" style="display: none;">
@@ -161,7 +160,7 @@
     </div>
 
     <button id="unlink-btn">Disconnect</button>
-    <a href="http://localhost:3000/dashboard" target="_blank" class="link">Open Dashboard</a>
+    <a id="open-dashboard-connected" href="#" target="_blank" rel="noopener noreferrer" class="link">Open Dashboard</a>
   </div>
 
   <script src="popup.js"></script>

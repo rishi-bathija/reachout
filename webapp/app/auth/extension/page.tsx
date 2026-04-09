@@ -18,7 +18,7 @@ export default function ExtensionLinkPage() {
       return
     }
 
-    window.postMessage({ type: 'REACHOUTFLOW_EXTENSION_TOKEN', token }, '*')
+    window.postMessage({ type: 'REACHOUTFLOW_EXTENSION_TOKEN', token }, window.location.origin)
     setStatus('sent')
   }, [token])
 

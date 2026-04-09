@@ -59,7 +59,13 @@ export default function GenerateMessagePanel({
 
   useEffect(() => {
     if (!cooldownUntil) return
-    const timer = setInterval(() => setNowMs(Date.now()), 500)
+    const timer = setInterval(() => {
+      const now = Date.now()
+      setNowMs(now)
+      if (now >= cooldownUntil) {
+        setCooldownUntil(null)
+      }
+    }, 500)
     return () => clearInterval(timer)
   }, [cooldownUntil])
 
@@ -222,9 +228,11 @@ export default function GenerateMessagePanel({
                 : 'Generate / Regenerate'}
           </Button>
           {profileUrl && (
-            <a href={profileUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" type="button">Open LinkedIn</Button>
-            </a>
+            <Button asChild variant="outline">
+              <a href={profileUrl} target="_blank" rel="noopener noreferrer">
+                Open LinkedIn
+              </a>
+            </Button>
           )}
         </div>
 

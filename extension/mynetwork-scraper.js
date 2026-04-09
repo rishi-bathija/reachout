@@ -18,10 +18,9 @@
     try {
       link.scrollIntoView({ block: 'center', behavior: 'instant' })
     } catch {}
-    console.log('[ReachOutFlow] View all link found', link.href)
 
     const events = [
-      new MouseEvent('pointerdown', { bubbles: true, cancelable: true, view: window }),
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window }),
       new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }),
       new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }),
       new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
@@ -31,7 +30,6 @@
         link.dispatchEvent(event)
       } catch {}
     }
-    console.log('[ReachOutFlow] View all click dispatched')
   }
 
   function findViewAllLink(banner) {
@@ -72,25 +70,44 @@
     return null
   }
 
+  function looksLikeInvitationModal(el) {
+    const text = (el.textContent || '').trim()
+    if (/accepted invitation|accepted invitations|invitation accepted/i.test(text)) {
+      return true
+    }
+
+    const ariaLabel = ((el.getAttribute && el.getAttribute('aria-label')) || '') + ' ' + ((el.getAttribute && el.getAttribute('role')) || '')
+    if (/accepted invitation|invitation accepted|invitations/i.test(ariaLabel)) {
+      return true
+    }
+
+    const actionButton = el.querySelector('button, a')
+    if (actionButton) {
+      const buttonText = (actionButton.textContent || '') + ' ' + ((actionButton.getAttribute && actionButton.getAttribute('aria-label')) || '')
+      if (/view all|see all|acceptance|invitation/i.test(buttonText)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
   function getModalRoot() {
     const candidates = Array.from(document.querySelectorAll('[role="dialog"], dialog, .artdeco-modal, .artdeco-modal__content'))
     if (!candidates.length) return null
 
-    const match = candidates.find((el) => /accepted invitation|accepted invitations/i.test(el.textContent || ''))
-    return match || candidates[0]
+    return candidates.find(looksLikeInvitationModal) || null
   }
 
   function collectFromModal() {
     const modal = getModalRoot()
     if (!modal) {
-      console.log('[ReachOutFlow] Modal not found')
       return []
     }
 
     const items = []
     const seen = new Set()
     const links = Array.from(modal.querySelectorAll('a[href*="/in/"]'))
-    console.log('[ReachOutFlow] Modal links', links.length)
     for (const link of links) {
       const row = link.closest('div, p') || link.parentElement
       const text = row?.textContent || ''
@@ -113,7 +130,6 @@
     const viewAllLink = findViewAllLinkNear(banner)
     const hasMultiple = /and\s+\d+\s+other/i.test(text)
     const inlineLinks = Array.from(banner.querySelectorAll('a[href*="/in/"]'))
-    console.log('[ReachOutFlow] Banner multiple?', hasMultiple, 'viewAll?', Boolean(viewAllLink), 'inline', inlineLinks.length)
 
     if (viewAllLink) {
       const items = []
@@ -148,7 +164,6 @@
         isAcceptedInviteText(el.textContent || '')
       )
     }
-    console.log('[ReachOutFlow] MyNetwork banners', banners.length)
 
     for (const banner of banners) {
       const viewAllLink = findViewAllLinkNear(banner)
@@ -157,7 +172,6 @@
       } else if (tryExpand) {
         const hasMultiple = /and\s+\d+\s+other/i.test(banner.textContent || '')
         if (hasMultiple) {
-          console.log('[ReachOutFlow] View all link not found, clicking banner fallback')
           try {
             banner.scrollIntoView({ block: 'center', behavior: 'instant' })
             banner.click()
@@ -187,7 +201,6 @@
         const modalAcceptances = collectFromModal()
         if (modalAcceptances.length || Date.now() - startedAt > 3000) {
           const finalAcceptances = modalAcceptances.length ? modalAcceptances : acceptances
-          console.log('[ReachOutFlow] MyNetwork scraper found', finalAcceptances)
           sendResponse({ acceptances: finalAcceptances })
           return
         }
@@ -197,8 +210,10 @@
       return true
     }
 
-    console.log('[ReachOutFlow] MyNetwork scraper found', acceptances)
     sendResponse({ acceptances })
     return true
   })
 })()
+
+
+

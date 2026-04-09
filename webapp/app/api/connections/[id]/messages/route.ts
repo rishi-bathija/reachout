@@ -24,55 +24,63 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    const body = (await request.json()) as {
-      content?: string
-      sender?: string
-      generatedMessageId?: string
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch (error: unknown) {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
-    if (!body.content || !body.content.trim()) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
+
+    const content = typeof (body as any).content === 'string' ? (body as any).content.trim() : ''
+    const sender = (body as any).sender
+    const generatedMessageId = typeof (body as any).generatedMessageId === 'string' ? (body as any).generatedMessageId : undefined
+
+    if (!content) {
       return NextResponse.json({ error: 'Message content is required' }, { status: 400 })
     }
 
-    if (!body.sender || (body.sender !== 'USER' && body.sender !== 'THEM')) {
+    if (sender !== 'USER' && sender !== 'THEM') {
       return NextResponse.json({ error: 'Invalid sender' }, { status: 400 })
     }
 
-    const maxOrder = await prisma.message.aggregate({
-      where: { connectionId: id },
-      _max: { orderIndex: true },
-    })
-
-    const nextOrderIndex =
-      typeof maxOrder._max.orderIndex === 'number' ? maxOrder._max.orderIndex + 1 : 0
-
-    const message = await prisma.message.create({
-      data: {
-        connectionId: id,
-        content: body.content.trim(),
-        sender: body.sender,
-        orderIndex: nextOrderIndex,
-      },
-    })
-
-    if (body.sender === 'USER') {
-      await prisma.connection.update({
-        where: { id },
-        data: { lastContactedAt: new Date() },
+    const message = await prisma.$transaction(async (tx) => {
+      const maxOrder = await tx.message.aggregate({
+        where: { connectionId: id },
+        _max: { orderIndex: true },
       })
-    }
 
-    if (body.generatedMessageId) {
-      await prisma.generatedMessage.updateMany({
-        where: {
-          id: body.generatedMessageId,
-          connectionId: id,
-        },
+      const nextOrderIndex =
+        typeof maxOrder._max.orderIndex === 'number' ? maxOrder._max.orderIndex + 1 : 0
+
+      const newMessage = await tx.message.create({
         data: {
-          used: true,
+          connectionId: id,
+          content,
+          sender,
+          orderIndex: nextOrderIndex,
         },
       })
-    }
+
+      if (sender === 'USER') {
+        await tx.connection.update({
+          where: { id },
+          data: { lastContactedAt: new Date() },
+        })
+      }
+
+      if (generatedMessageId) {
+        await tx.generatedMessage.update({
+          where: { id: generatedMessageId },
+          data: { used: true },
+        })
+      }
+
+      return newMessage
+    })
 
     return NextResponse.json(message)
   } catch (error: unknown) {

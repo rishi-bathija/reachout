@@ -3,6 +3,16 @@ import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import { mapGeminiError } from '@/lib/ai/gemini-error'
 
+function sanitizePromptField(value?: string) {
+  if (!value) return ''
+  return value
+    .replace(/###|Output:|System:|User:|Assistant:/gi, '')
+    .replace(/\r\n|\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500)
+}
+
 const VARIATION_PROMPTS: Record<string, string> = {
   balanced: 'Balanced, professional, concise.',
   short: 'Very short and crisp. Keep it under 70 words.',
@@ -75,29 +85,30 @@ export async function POST(
       'Write a personalized LinkedIn message for networking/job referral outreach.',
       'Keep it natural and specific. Avoid generic buzzwords.',
       `Style: ${VARIATION_PROMPTS[variation]}`,
-      `Recipient name: ${connection.name}`,
-      `Recipient role: ${connection.role}`,
-      `Recipient company: ${connection.company}`,
+      `Recipient name: ${sanitizePromptField(connection.name)}`,
+      `Recipient role: ${sanitizePromptField(connection.role)}`,
+      `Recipient company: ${sanitizePromptField(connection.company)}`,
       profile?.yearsOfExp !== null && profile?.yearsOfExp !== undefined
         ? `My years of experience: ${profile.yearsOfExp}`
         : '',
-      profile?.techStack ? `My tech stack: ${profile.techStack}` : '',
-      profile?.targetRoles ? `My target roles: ${profile.targetRoles}` : '',
-      profile?.introSummary ? `My profile summary: ${profile.introSummary}` : '',
-      connection.jobTitle ? `Target job title: ${connection.jobTitle}` : '',
-      connection.jobUrl ? `Job link: ${connection.jobUrl}` : '',
-      connection.notes ? `Context notes: ${connection.notes}` : '',
+      profile?.techStack ? `My tech stack: ${sanitizePromptField(profile.techStack)}` : '',
+      profile?.targetRoles ? `My target roles: ${sanitizePromptField(profile.targetRoles)}` : '',
+      profile?.introSummary ? `My profile summary: ${sanitizePromptField(profile.introSummary)}` : '',
+      connection.jobTitle ? `Target job title: ${sanitizePromptField(connection.jobTitle)}` : '',
+      connection.jobUrl ? `Job link: ${sanitizePromptField(connection.jobUrl)}` : '',
+      connection.notes ? `Context notes: ${sanitizePromptField(connection.notes)}` : '',
       'Output only the message text, no extra explanation.',
     ]
       .filter(Boolean)
       .join('\n')
 
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
@@ -109,8 +120,6 @@ export async function POST(
       }
     )
 
-    console.log('geminiresponse', geminiResponse);
-    
     if (!geminiResponse.ok) {
       const mapped = await mapGeminiError(geminiResponse)
       return NextResponse.json({ error: mapped.error }, { status: mapped.status })

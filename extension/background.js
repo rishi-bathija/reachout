@@ -83,11 +83,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'CHECK_ACCEPTANCES') {
     ;(async () => {
-      console.log('[ReachOutFlow] CHECK_ACCEPTANCES received')
       const config = await new Promise((resolve) => {
         chrome.storage.local.get(['config'], (result) => resolve(result.config || DEFAULT_CONFIG))
       })
-      console.log('[ReachOutFlow] Config loaded', { apiUrl: config.apiUrl, hasToken: Boolean(config.token) })
 
       if (!config.token || !config.apiUrl) {
         sendResponse({ success: false, error: 'Extension not linked' })
@@ -95,10 +93,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       const acceptances = await openNotificationsAndScrape()
-      console.log('[ReachOutFlow] Notifications acceptances', acceptances)
       if (!acceptances.length) {
-      const fallback = await openMyNetworkAndScrape(true)
-        console.log('[ReachOutFlow] MyNetwork acceptances', fallback)
+        const fallback = await openMyNetworkAndScrape(true)
         if (!fallback.length) {
           sendResponse({ success: true, matched: 0, updated: 0, acceptances: [] })
           return
@@ -107,14 +103,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       const viewAllLink = acceptances.find((item) => item.viewAll)?.viewAll
-      if (viewAllLink) {
-        console.log('[ReachOutFlow] View all detected', viewAllLink)
-      }
 
       let filteredAcceptances = acceptances.filter((item) => item.profileUrl || item.name)
 
       if (viewAllLink && filteredAcceptances.length <= 1) {
-        console.log('[ReachOutFlow] View all fallback scrape', viewAllLink)
         const expanded = await openMyNetworkAndScrape(false, viewAllLink)
         if (expanded.length) {
           filteredAcceptances = expanded.filter((item) => item.profileUrl || item.name)
@@ -131,10 +123,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           body: JSON.stringify({ acceptances: filteredAcceptances }),
         })
 
-        const data = await response.json()
-        console.log('[ReachOutFlow] Acceptances API response', { status: response.status, data })
+        const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to process acceptances')
+          const errorDetail =
+            data && typeof data === 'object' && 'error' in data
+              ? String(data.error)
+              : `Failed to process acceptances (${response.status})`
+          throw new Error(errorDetail)
         }
 
         sendResponse({
@@ -145,7 +140,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           matchedConnections: data.matchedConnections || [],
         })
       } catch (error) {
-        console.log('[ReachOutFlow] Acceptances API error', error)
         sendResponse({
           success: false,
           error: error instanceof Error ? error.message : 'Failed to process acceptances',
@@ -157,23 +151,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 })
 
-function openNotificationsAndScrape() {
+function scrapeLinkedInPage(url, messageType, messagePayload) {
   return new Promise((resolve) => {
-    chrome.tabs.create({ url: 'https://www.linkedin.com/notifications/', active: false }, (tab) => {
+    chrome.tabs.create({ url, active: false }, (tab) => {
       if (!tab || !tab.id) {
         resolve([])
         return
       }
 
       const tabId = tab.id
+      let resolved = false
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        chrome.tabs.onUpdated.removeListener(onUpdated)
+      }
+
+      const finish = (acceptances) => {
+        if (resolved) return
+        resolved = true
+        cleanup()
+        chrome.tabs.remove(tabId, () => resolve(acceptances || []))
+      }
+
+      const timeout = setTimeout(() => {
+        finish([])
+      }, 30000)
 
       const onUpdated = (updatedTabId, info) => {
         if (updatedTabId !== tabId || info.status !== 'complete') return
-        chrome.tabs.onUpdated.removeListener(onUpdated)
 
-        chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_ACCEPTANCES' }, (response) => {
+        chrome.tabs.sendMessage(tabId, { type: messageType, ...(messagePayload || {}) }, (response) => {
+          if (chrome.runtime.lastError) {
+            finish([])
+            return
+          }
           const acceptances = response?.acceptances || []
-          chrome.tabs.remove(tabId, () => resolve(acceptances))
+          finish(acceptances)
         })
       }
 
@@ -182,28 +196,15 @@ function openNotificationsAndScrape() {
   })
 }
 
+function openNotificationsAndScrape() {
+  return scrapeLinkedInPage(
+    'https://www.linkedin.com/notifications/',
+    'SCRAPE_ACCEPTANCES',
+    {}
+  )
+}
+
 function openMyNetworkAndScrape(expand, urlOverride) {
-  return new Promise((resolve) => {
-    const url = urlOverride || 'https://www.linkedin.com/mynetwork/grow/'
-    chrome.tabs.create({ url, active: false }, (tab) => {
-      if (!tab || !tab.id) {
-        resolve([])
-        return
-      }
-
-      const tabId = tab.id
-
-      const onUpdated = (updatedTabId, info) => {
-        if (updatedTabId !== tabId || info.status !== 'complete') return
-        chrome.tabs.onUpdated.removeListener(onUpdated)
-
-        chrome.tabs.sendMessage(tabId, { type: 'SCRAPE_MYNETWORK_ACCEPTANCES', expand }, (response) => {
-          const acceptances = response?.acceptances || []
-          chrome.tabs.remove(tabId, () => resolve(acceptances))
-        })
-      }
-
-      chrome.tabs.onUpdated.addListener(onUpdated)
-    })
-  })
+  const url = urlOverride || 'https://www.linkedin.com/mynetwork/grow/'
+  return scrapeLinkedInPage(url, 'SCRAPE_MYNETWORK_ACCEPTANCES', { expand })
 }

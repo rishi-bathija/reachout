@@ -1,14 +1,37 @@
-let config = {}
+const DEFAULT_CONFIG = {
+  apiUrl: 'http://localhost:3000',
+  token: null,
+  linkedAt: null,
+}
+
+let config = { ...DEFAULT_CONFIG }
 let pendingConnection = null
 
-chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (response) => {
-  if (response && response.success) {
-    config = response.config
-    chrome.storage.local.get(['pendingConnection'], (result) => {
-      pendingConnection = result.pendingConnection || null
-      updateUI()
-    })
+async function safeParseJson(response) {
+  const text = await response.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
   }
+}
+
+chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (response) => {
+  if (chrome.runtime.lastError || !response || !response.success) {
+    config = { ...DEFAULT_CONFIG }
+  } else {
+    config = response.config ? { ...response.config } : { ...DEFAULT_CONFIG }
+  }
+
+  chrome.storage.local.get(['pendingConnection'], (result) => {
+    if (chrome.runtime.lastError) {
+      pendingConnection = null
+    } else {
+      pendingConnection = result.pendingConnection || null
+    }
+    updateUI()
+  })
 })
 
 function updateUI() {
@@ -44,9 +67,17 @@ function updateUI() {
     linkedView.style.display = 'none'
 
     if (config.apiUrl) {
-      document.getElementById('api-url').value = config.apiUrl
+      const apiUrlInput = document.getElementById('api-url')
+      if (apiUrlInput) apiUrlInput.value = config.apiUrl
     }
   }
+
+  const dashboardLink = document.getElementById('open-dashboard-link')
+  const dashboardConnectedLink = document.getElementById('open-dashboard-connected')
+  const dashboardHref = config.apiUrl ? `${config.apiUrl.replace(/\/$/, '')}/dashboard` : '#'
+
+  if (dashboardLink) dashboardLink.href = dashboardHref
+  if (dashboardConnectedLink) dashboardConnectedLink.href = dashboardHref
 }
 
 document.getElementById('open-link-btn').addEventListener('click', () => {
@@ -65,7 +96,7 @@ document.getElementById('open-link-btn').addEventListener('click', () => {
   chrome.tabs.create({ url: linkUrl })
 })
 
-document.getElementById('save-token-btn').addEventListener('click', () => {
+document.getElementById('save-token-btn').addEventListener('click', async () => {
   const apiUrl = document.getElementById('api-url').value.trim()
   const token = document.getElementById('token-input').value.trim()
 
@@ -74,22 +105,42 @@ document.getElementById('save-token-btn').addEventListener('click', () => {
     return
   }
 
-  chrome.runtime.sendMessage({
-    type: 'UPDATE_CONFIG',
-    config: { apiUrl },
-  })
-
-  chrome.runtime.sendMessage({ type: 'SET_TOKEN', token }, () => {
-    fetch(`${apiUrl}/api/extension/confirm`, {
+  try {
+    const confirmResponse = await fetch(`${apiUrl}/api/extension/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
-    }).finally(() => {
-      config.apiUrl = apiUrl
-      config.token = token
-      updateUI()
     })
-  })
+
+    const data = await safeParseJson(confirmResponse)
+    if (!confirmResponse.ok) {
+      throw new Error(data?.error || `Confirm request failed with status ${confirmResponse.status}`)
+    }
+
+    chrome.runtime.sendMessage({
+      type: 'UPDATE_CONFIG',
+      config: { apiUrl },
+    }, (updateResponse) => {
+      if (chrome.runtime.lastError || !updateResponse || !updateResponse.success) {
+        alert('Failed to save API URL in extension.')
+        return
+      }
+
+      chrome.runtime.sendMessage({ type: 'SET_TOKEN', token }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.success) {
+          alert('Failed to save token in extension.')
+          return
+        }
+
+        config.apiUrl = apiUrl
+        config.token = token
+        updateUI()
+      })
+    })
+  } catch (error) {
+    console.error('[ReachOutFlow] token confirmation failed', error)
+    alert(error instanceof Error ? error.message : 'Failed to confirm token')
+  }
 })
 
 document.getElementById('unlink-btn').addEventListener('click', () => {
@@ -152,11 +203,14 @@ document.getElementById('save-connection-btn').addEventListener('click', () => {
       notes: notes || undefined,
     }),
   })
-    .then((response) => response.json().then((data) => ({ ok: response.ok, data })))
-    .then(({ ok, data }) => {
-      if (!ok) {
-        throw new Error(data.error || 'Failed to save connection')
+    .then(async (response) => {
+      const data = await safeParseJson(response)
+      if (!response.ok) {
+        throw new Error(data?.error || `Failed to save connection (${response.status})`)
       }
+      return data
+    })
+    .then(() => {
       chrome.storage.local.remove(['pendingConnection'], () => {
         pendingConnection = null
         updateUI()

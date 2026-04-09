@@ -39,7 +39,13 @@ export default function ReplyAssistantPanel({ connectionId }: Props) {
 
   useEffect(() => {
     if (!cooldownUntil) return
-    const timer = setInterval(() => setNowMs(Date.now()), 500)
+    const timer = setInterval(() => {
+      const now = Date.now()
+      setNowMs(now)
+      if (now >= cooldownUntil) {
+        setCooldownUntil(null)
+      }
+    }, 500)
     return () => clearInterval(timer)
   }, [cooldownUntil])
 
@@ -215,7 +221,7 @@ export default function ReplyAssistantPanel({ connectionId }: Props) {
         {suggestions.length > 0 && (
           <div className="space-y-3">
             {suggestions.map((suggestion, index) => (
-              <div key={`${index}-${suggestion.slice(0, 10)}`} className="space-y-2 rounded-md border p-3">
+              <div key={index} className="space-y-2 rounded-md border p-3">
                 <Textarea
                   rows={4}
                   value={suggestion}

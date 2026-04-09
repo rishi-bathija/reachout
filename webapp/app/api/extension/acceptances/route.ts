@@ -24,7 +24,6 @@ export async function POST(request: Request) {
     }
 
     const acceptances = Array.isArray(body.acceptances) ? body.acceptances : []
-    console.log('[ReachOutFlow] Acceptances payload', { userId, count: acceptances.length })
     if (acceptances.length === 0) {
       return NextResponse.json({ updated: 0, matched: 0 })
     }
@@ -38,7 +37,6 @@ export async function POST(request: Request) {
     }> = []
 
     for (const acceptance of acceptances) {
-      console.log('[ReachOutFlow] Matching acceptance', acceptance)
       const rawUrl = acceptance.profileUrl?.trim() || ''
       const normalizedUrl = normalizeProfileUrl(rawUrl)
 

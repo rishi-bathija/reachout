@@ -24,8 +24,6 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    console.log('searchparams', searchParams);
-    
 
     const result = await listConnectionsForUser(user.id, {
       company: searchParams.get('company'),
