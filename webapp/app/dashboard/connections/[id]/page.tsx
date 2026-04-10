@@ -35,7 +35,7 @@ export default async function ConnectionDetailPage({
     },
     include: {
       messages: {
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+        orderBy: [{ orderIndex: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }]
       },
       generatedMessages: {
         orderBy: { generatedAt: 'desc' },
@@ -43,6 +43,8 @@ export default async function ConnectionDetailPage({
     }
   })
 
+  // console.log('connection messages', connection?.messages);
+  
   if (!connection) {
     notFound()
   }

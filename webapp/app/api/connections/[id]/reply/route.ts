@@ -53,7 +53,7 @@ async function generateWithGemini(apiKey: string, prompt: string): Promise<{
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          'x-goog-api-key': apiKey,
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
@@ -61,6 +61,8 @@ async function generateWithGemini(apiKey: string, prompt: string): Promise<{
         signal: controller.signal,
       }
     )
+
+    console.log('geminiresponse', geminiResponse);
 
     if (!geminiResponse.ok) {
       const mapped = await mapGeminiError(geminiResponse)
@@ -175,6 +177,8 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
+    console.log('connection', connection);
+
     const tone = body.tone && TONE_PROMPTS[body.tone] ? body.tone : 'professional'
     const requestedMode: ReplyMode =
       body.mode === 'reply' || body.mode === 'follow_up' || body.mode === 'auto'
@@ -182,11 +186,18 @@ export async function POST(
         : 'auto'
 
     const recentWindow = connection.messages.slice(-24)
+    console.log('recentwindow', recentWindow);
+
     const conversation = recentWindow
       .map((message) => `${message.sender}: ${message.content}`)
       .join('\n')
 
+    console.log('conversation', conversation);
+
     const latestMessage = recentWindow.at(-1)
+
+    console.log('latestmessage', latestMessage);
+
     const effectiveMode: EffectiveReplyMode =
       requestedMode === 'auto'
         ? latestMessage?.sender === 'THEM'
@@ -194,12 +205,19 @@ export async function POST(
           : 'follow_up'
         : requestedMode
 
+    console.log('effectivemode', effectiveMode);
+
     const latestUserMessage = [...recentWindow]
       .reverse()
       .find((message) => message.sender === 'USER')?.content
+
+    console.log('latestusermessage', latestUserMessage);
+
     const latestThemMessage = [...recentWindow]
       .reverse()
       .find((message) => message.sender === 'THEM')?.content
+
+    console.log('latestthemmessage', latestThemMessage);
 
     const intentInstruction =
       effectiveMode === 'reply'
@@ -235,12 +253,20 @@ export async function POST(
       .filter(Boolean)
       .join('\n\n')
 
+    console.log('baseprompt', basePrompt);
+
     const firstAttempt = await generateWithGemini(apiKey, basePrompt)
+
+    console.log('firstattempt', firstAttempt);
+    
     if (!firstAttempt.ok) {
       return NextResponse.json({ error: firstAttempt.error }, { status: firstAttempt.status })
     }
 
     let suggestions = parseSuggestions(firstAttempt.text)
+
+    console.log('suggestions', suggestions);
+    
     if (suggestions.length === 0) {
       return NextResponse.json(
         { error: 'Could not parse reply suggestions from model output.' },
@@ -251,6 +277,7 @@ export async function POST(
     if (looksWrongPerspective(suggestions)) {
       const retryPrompt = `${basePrompt}\n\nHard rule: Do not write as recruiter. Do not ask USER to share CV.`
       const secondAttempt = await generateWithGemini(apiKey, retryPrompt)
+      console.log('secondattempt', secondAttempt);
       if (!secondAttempt.ok) {
         return NextResponse.json({ error: secondAttempt.error }, { status: secondAttempt.status })
       }

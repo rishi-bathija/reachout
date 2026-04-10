@@ -5,11 +5,14 @@ import { NextResponse } from 'next/server'
 type ParsedMessage = {
   sender: 'USER' | 'THEM'
   content: string
+  dateLabel?: string
+  timeMinutes?: number
 }
 
 const HEADER_WITH_PRONOUNS = /^(.+?)\s+\(([^)]+)\)\s+\d{1,2}:\d{2}\s*(AM|PM)$/i
 const HEADER_SIMPLE = /^(.+?)\s+\d{1,2}:\d{2}\s*(AM|PM)$/i
-const DATE_SEPARATOR = /^(Today|Yesterday|[A-Za-z]{3}\s+\d{1,2})$/i
+const DATE_SEPARATOR =
+  /^(Today|Yesterday|Mon(day)?|Tue(sday)?|Wed(nesday)?|Thu(rsday)?|Fri(day)?|Sat(urday)?|Sun(day)?|Jan(uary)?|Feb(ruary)?|Mar(ch)?|Apr(il)?|May|Jun(e)?|Jul(y)?|Aug(ust)?|Sep(tember)?|Sept(ember)?|Oct(ober)?|Nov(ember)?|Dec(ember)?)(\s+\d{1,2})?$/i
 const SEEN_BY_LINE = /^\(?Seen by .+ at \d{1,2}:\d{2}\s*(AM|PM)\.?\)?$/i
 
 function isEmojiOnlyLine(line: string): boolean {
@@ -41,6 +44,18 @@ function tokenMatch(value: string, reference: string): boolean {
 
 function normalizeContent(value: string): string {
   return value.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function parseTimeToMinutes(value: string): number | null {
+  const match = value.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  const ampm = match[3].toUpperCase()
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null
+  let normalizedHours = hours % 12
+  if (ampm === 'PM') normalizedHours += 12
+  return normalizedHours * 60 + minutes
 }
 
 function isNoiseLine(line: string): boolean {
@@ -97,6 +112,8 @@ function parseLinkedInTranscript(
 
   let currentSpeaker: 'USER' | 'THEM' | null = null
   let currentContent: string[] = []
+  let currentDateLabel: string | null = null
+  let currentTimeMinutes: number | null = null
 
   const flush = () => {
     if (!currentSpeaker) return
@@ -109,6 +126,8 @@ function parseLinkedInTranscript(
     messages.push({
       sender: currentSpeaker,
       content,
+      dateLabel: currentDateLabel || undefined,
+      timeMinutes: currentTimeMinutes ?? undefined,
     })
     currentContent = []
   }
@@ -121,6 +140,11 @@ function parseLinkedInTranscript(
       if (currentContent.length > 0 && currentContent[currentContent.length - 1] !== '') {
         currentContent.push('')
       }
+      continue
+    }
+
+    if (DATE_SEPARATOR.test(trimmed)) {
+      currentDateLabel = trimmed
       continue
     }
 
@@ -137,6 +161,7 @@ function parseLinkedInTranscript(
       if (candidateName) {
         flush()
         currentSpeaker = resolveSpeaker(candidateName, connectionName, userAliases, unknownMap)
+        currentTimeMinutes = parseTimeToMinutes(trimmed)
         continue
       }
     }
@@ -149,7 +174,43 @@ function parseLinkedInTranscript(
   }
 
   flush()
-  return messages
+  if (messages.length <= 2) return messages
+
+  const grouped: ParsedMessage[][] = []
+  for (const msg of messages) {
+    const lastGroup = grouped[grouped.length - 1]
+    if (!lastGroup) {
+      grouped.push([msg])
+      continue
+    }
+    const lastLabel = lastGroup[0]?.dateLabel ?? null
+    const label = msg.dateLabel ?? null
+    if (lastLabel === label) {
+      lastGroup.push(msg)
+    } else {
+      grouped.push([msg])
+    }
+  }
+
+  const normalized: ParsedMessage[] = []
+  for (const group of grouped) {
+    let ascending = 0
+    let descending = 0
+    for (let i = 1; i < group.length; i += 1) {
+      const prev = group[i - 1].timeMinutes
+      const next = group[i].timeMinutes
+      if (typeof prev !== 'number' || typeof next !== 'number') continue
+      if (prev <= next) ascending += 1
+      if (prev >= next) descending += 1
+    }
+    if (descending > ascending) {
+      normalized.push(...group.slice().reverse())
+    } else {
+      normalized.push(...group)
+    }
+  }
+
+  return normalized
 }
 
 export async function POST(
