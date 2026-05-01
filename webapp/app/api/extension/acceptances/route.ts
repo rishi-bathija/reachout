@@ -60,6 +60,11 @@ export async function POST(request: Request) {
         introSummary: true,
       },
     })
+
+    if (!profile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
+
     const lookbackTime = new Date(Date.now() - AUTO_DRAFT_LOOKBACK_HOURS * 60 * 60 * 1000)
 
     for (const acceptance of acceptances) {

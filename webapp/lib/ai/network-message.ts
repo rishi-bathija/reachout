@@ -149,43 +149,52 @@ export async function generateNetworkMessage(params: {
     notesForPrompt
   )
 
-  const geminiResponse = await fetchGeminiWithRetry({
-    apiKey: params.apiKey,
-    prompt,
-    model: DEFAULT_GENERATION_MODEL,
-  })
+  try {
+    const geminiResponse = await fetchGeminiWithRetry({
+      apiKey: params.apiKey,
+      prompt,
+      model: DEFAULT_GENERATION_MODEL,
+    })
 
-  // console.log('geminiresponse', geminiResponse);
-  
-  if (!geminiResponse.ok) {
-    const mapped = await mapGeminiError(geminiResponse)
+    // console.log('geminiresponse', geminiResponse);
+    
+    if (!geminiResponse.ok) {
+      const mapped = await mapGeminiError(geminiResponse)
+      return {
+        ok: false as const,
+        status: mapped.status,
+        error: mapped.error,
+      }
+    }
+
+    const result = (await geminiResponse.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+    }
+
+    const generatedText = result.candidates?.[0]?.content?.parts
+      ?.map((part) => part.text ?? '')
+      .join('\n')
+      .trim()
+
+    if (!generatedText) {
+      return {
+        ok: false as const,
+        status: 502,
+        error: 'Gemini returned an empty response.',
+      }
+    }
+
+    return {
+      ok: true as const,
+      variation,
+      text: generatedText,
+    }
+  } catch (error) {
+    const mapped = await mapGeminiError({ status: 500, statusText: 'Internal Server Error' } as Response)
     return {
       ok: false as const,
       status: mapped.status,
       error: mapped.error,
     }
-  }
-
-  const result = (await geminiResponse.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
-  }
-
-  const generatedText = result.candidates?.[0]?.content?.parts
-    ?.map((part) => part.text ?? '')
-    .join('\n')
-    .trim()
-
-  if (!generatedText) {
-    return {
-      ok: false as const,
-      status: 502,
-      error: 'Gemini returned an empty response.',
-    }
-  }
-
-  return {
-    ok: true as const,
-    variation,
-    text: generatedText,
   }
 }

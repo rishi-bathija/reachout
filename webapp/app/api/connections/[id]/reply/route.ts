@@ -221,8 +221,8 @@ export async function POST(
         ? [
             'Follow-up context summary (for reference, not a reply target):',
             connection.jobTitle
-              ? `- Target job: ${connection.jobTitle} at ${connection.company}`
-              : `- Company: ${connection.company}`,
+              ? connection.company ? `- Target job: ${connection.jobTitle} at ${connection.company}` : `- Target job: ${connection.jobTitle}`
+              : connection.company ? `- Company: ${connection.company}` : '',
             latestUserMessage ? `- Last USER action: ${latestUserMessage}` : '',
             latestThemMessage ? `- Last THEM response: ${latestThemMessage}` : '',
             '- Status: No reply since then.',

@@ -276,12 +276,12 @@ export async function POST(
 
     const aliases = aliasesRaw
       .split(',')
-      .map((v) => v.trim())
+      .map((v: string) => v.trim())
       .filter(Boolean)
 
     // console.log('userAliases', aliases);
 
-    const parsed = parseLinkedInTranscript(body.transcript, connection.name, aliases)
+    const parsed = parseLinkedInTranscript((body as any).transcript, connection.name, aliases)
 
     // console.log('parsed', parsed);
 
