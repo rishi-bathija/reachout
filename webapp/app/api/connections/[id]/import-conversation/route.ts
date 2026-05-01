@@ -113,6 +113,7 @@ function parseLinkedInTranscript(
   let currentSpeaker: 'USER' | 'THEM' | null = null
   let currentContent: string[] = []
   let currentDateLabel: string | null = null
+  let pendingDateLabel: string | null = null
   let currentTimeMinutes: number | null = null
 
   const flush = () => {
@@ -144,7 +145,7 @@ function parseLinkedInTranscript(
     }
 
     if (DATE_SEPARATOR.test(trimmed)) {
-      currentDateLabel = trimmed
+      pendingDateLabel = trimmed
       continue
     }
 
@@ -162,6 +163,10 @@ function parseLinkedInTranscript(
         flush()
         currentSpeaker = resolveSpeaker(candidateName, connectionName, userAliases, unknownMap)
         currentTimeMinutes = parseTimeToMinutes(trimmed)
+        if (pendingDateLabel) {
+          currentDateLabel = pendingDateLabel
+          pendingDateLabel = null
+        }
         continue
       }
     }
@@ -175,6 +180,16 @@ function parseLinkedInTranscript(
 
   flush()
   if (messages.length <= 2) return messages
+
+  if (!messages[0]?.dateLabel) {
+    const firstDated = messages.find((msg) => msg.dateLabel)
+    if (firstDated?.dateLabel) {
+      for (const msg of messages) {
+        if (msg.dateLabel) break
+        msg.dateLabel = firstDated.dateLabel
+      }
+    }
+  }
 
   const grouped: ParsedMessage[][] = []
   for (const msg of messages) {
@@ -253,13 +268,23 @@ export async function POST(
       return NextResponse.json({ error: 'Transcript is required' }, { status: 400 })
     }
 
+    // console.log('transcript', transcript);
+
     const aliasesRaw = typeof (body as any).userAliases === 'string' ? (body as any).userAliases : ''
+
+    // console.log('userAliases', aliasesRaw);
+
     const aliases = aliasesRaw
       .split(',')
       .map((v) => v.trim())
       .filter(Boolean)
 
+    // console.log('userAliases', aliases);
+
     const parsed = parseLinkedInTranscript(body.transcript, connection.name, aliases)
+
+    // console.log('parsed', parsed);
+
     if (parsed.length === 0) {
       return NextResponse.json(
         { error: 'No messages could be parsed. Check transcript format.' },
@@ -272,9 +297,13 @@ export async function POST(
       select: { sender: true, content: true },
     })
 
+    // console.log('existingMessages', existingMessages);
+    
     const existingSet = new Set(
       existingMessages.map((m) => `${m.sender}::${normalizeContent(m.content)}`)
     )
+
+    // console.log('existingSet', existingSet);
 
     const toInsert: ParsedMessage[] = []
     let skippedDuplicates = 0
@@ -287,6 +316,8 @@ export async function POST(
       existingSet.add(key)
       toInsert.push(msg)
     }
+    
+    // console.log('toInsert', toInsert);
 
     if (toInsert.length > 0) {
       await prisma.$transaction(async (tx) => {
@@ -298,6 +329,8 @@ export async function POST(
         const baseOrderIndex =
           typeof maxOrder._max.orderIndex === 'number' ? maxOrder._max.orderIndex : -1
 
+          // console.log('baseOrderIndex', baseOrderIndex);
+          
         await tx.message.createMany({
           data: toInsert.map((msg, index) => ({
             connectionId: connection.id,

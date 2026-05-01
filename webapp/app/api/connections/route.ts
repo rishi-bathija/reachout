@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       const trimmed = raw.trim()
       return trimmed.split('·')[0]?.trim() || trimmed
     }
-
+    
     let parsedDateSent: Date | undefined
     if (body.connectionSentAt && body.connectionSentAt.trim()) {
       const parsed = new Date(body.connectionSentAt)

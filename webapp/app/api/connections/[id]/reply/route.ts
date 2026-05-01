@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import { mapGeminiError } from '@/lib/ai/gemini-error'
+import { fetchGeminiWithRetry } from '@/lib/ai/gemini-fetch'
 
 const TONE_PROMPTS: Record<string, string> = {
   professional: 'Professional, concise, and respectful.',
@@ -43,26 +44,11 @@ async function generateWithGemini(apiKey: string, prompt: string): Promise<{
   status: number
   error: unknown
 }> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 25000)
-
   try {
-    const geminiResponse = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-        }),
-        signal: controller.signal,
-      }
-    )
-
-    console.log('geminiresponse', geminiResponse);
+    const geminiResponse = await fetchGeminiWithRetry({
+      apiKey,
+      prompt,
+    })
 
     if (!geminiResponse.ok) {
       const mapped = await mapGeminiError(geminiResponse)
@@ -99,8 +85,6 @@ async function generateWithGemini(apiKey: string, prompt: string): Promise<{
         ? { code: 'TIMEOUT', message: 'AI request timed out. Please retry.' }
         : error,
     }
-  } finally {
-    clearTimeout(timeout)
   }
 }
 
@@ -177,8 +161,6 @@ export async function POST(
       return NextResponse.json({ error: 'Connection not found' }, { status: 404 })
     }
 
-    console.log('connection', connection);
-
     const tone = body.tone && TONE_PROMPTS[body.tone] ? body.tone : 'professional'
     const requestedMode: ReplyMode =
       body.mode === 'reply' || body.mode === 'follow_up' || body.mode === 'auto'
@@ -186,17 +168,11 @@ export async function POST(
         : 'auto'
 
     const recentWindow = connection.messages.slice(-24)
-    console.log('recentwindow', recentWindow);
-
     const conversation = recentWindow
       .map((message) => `${message.sender}: ${message.content}`)
       .join('\n')
 
-    console.log('conversation', conversation);
-
     const latestMessage = recentWindow.at(-1)
-
-    console.log('latestmessage', latestMessage);
 
     const effectiveMode: EffectiveReplyMode =
       requestedMode === 'auto'
@@ -205,30 +181,61 @@ export async function POST(
           : 'follow_up'
         : requestedMode
 
-    console.log('effectivemode', effectiveMode);
-
     const latestUserMessage = [...recentWindow]
       .reverse()
       .find((message) => message.sender === 'USER')?.content
-
-    console.log('latestusermessage', latestUserMessage);
 
     const latestThemMessage = [...recentWindow]
       .reverse()
       .find((message) => message.sender === 'THEM')?.content
 
-    console.log('latestthemmessage', latestThemMessage);
+    const resumeRequested = recentWindow.some(
+      (message) => message.sender === 'THEM' && /(resume|cv)\b/i.test(message.content)
+    )
+    const resumeShared = recentWindow.some(
+      (message) =>
+        message.sender === 'USER' &&
+        /(resume|cv)\b/i.test(message.content) &&
+        /(attached|here is|here's|please find|resume\.pdf|\.pdf)\b/i.test(message.content)
+    )
 
     const intentInstruction =
       effectiveMode === 'reply'
         ? 'Generate a direct reply to the latest THEM message.'
         : 'Generate a polite follow-up from USER to nudge for an update.'
 
+    const followUpDirectives =
+      effectiveMode === 'follow_up'
+        ? [
+            'Assume there has been no reply since the last USER message.',
+            'Do NOT respond to any prior THEM message. This is a follow-up after silence.',
+            'Keep it short, polite, and focused on the next step.',
+            (resumeRequested || resumeShared)
+              ? 'Offer to resend resume or clarify details if needed.'
+              : '',
+          ]
+        : []
+
+    const followUpContext =
+      effectiveMode === 'follow_up'
+        ? [
+            'Follow-up context summary (for reference, not a reply target):',
+            connection.jobTitle
+              ? `- Target job: ${connection.jobTitle} at ${connection.company}`
+              : `- Company: ${connection.company}`,
+            latestUserMessage ? `- Last USER action: ${latestUserMessage}` : '',
+            latestThemMessage ? `- Last THEM response: ${latestThemMessage}` : '',
+            '- Status: No reply since then.',
+          ]
+            .filter(Boolean)
+            .join('\n')
+        : ''
 
     const basePrompt = [
       'You are helping draft LinkedIn replies.',
       `Write 3 reply options to send next. Tone: ${TONE_PROMPTS[tone]}`,
       intentInstruction,
+      ...followUpDirectives,
       'You are drafting text for USER to send.',
       'Always write in first-person from USER perspective.',
       'Never write as the recipient or recruiter.',
@@ -244,28 +251,29 @@ export async function POST(
       `Recipient role/company: ${connection.role} at ${connection.company}`,
       connection.jobTitle ? `Target job: ${connection.jobTitle}` : '',
       connection.notes ? `User notes: ${connection.notes}` : '',
-      latestThemMessage ? `Latest THEM message:\n${latestThemMessage}` : '',
+      effectiveMode === 'reply' && latestThemMessage
+        ? `Latest THEM message:\n${latestThemMessage}`
+        : '',
       latestUserMessage ? `Latest USER message:\n${latestUserMessage}` : '',
-      conversation ? `Conversation history:\n${conversation}` : 'No prior messages yet.',
+      followUpContext,
+      effectiveMode === 'reply'
+        ? conversation
+          ? `Conversation history:\n${conversation}`
+          : 'No prior messages yet.'
+        : '',
       `Return exactly 3 options separated by ${SPLIT_TOKEN}.`,
       'Return only the 3 options text with separators; no headings.',
     ]
       .filter(Boolean)
       .join('\n\n')
 
-    console.log('baseprompt', basePrompt);
-
     const firstAttempt = await generateWithGemini(apiKey, basePrompt)
-
-    console.log('firstattempt', firstAttempt);
     
     if (!firstAttempt.ok) {
       return NextResponse.json({ error: firstAttempt.error }, { status: firstAttempt.status })
     }
 
     let suggestions = parseSuggestions(firstAttempt.text)
-
-    console.log('suggestions', suggestions);
     
     if (suggestions.length === 0) {
       return NextResponse.json(
@@ -277,7 +285,6 @@ export async function POST(
     if (looksWrongPerspective(suggestions)) {
       const retryPrompt = `${basePrompt}\n\nHard rule: Do not write as recruiter. Do not ask USER to share CV.`
       const secondAttempt = await generateWithGemini(apiKey, retryPrompt)
-      console.log('secondattempt', secondAttempt);
       if (!secondAttempt.ok) {
         return NextResponse.json({ error: secondAttempt.error }, { status: secondAttempt.status })
       }

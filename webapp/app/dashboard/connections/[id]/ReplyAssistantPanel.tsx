@@ -108,7 +108,10 @@ export default function ReplyAssistantPanel({ connectionId }: Props) {
 
       if (!response.ok) {
         const payload = getErrorPayload(data.error)
-        if (payload.code === 'RATE_LIMITED' && payload.retryAfterSec) {
+        if (
+          (payload.code === 'RATE_LIMITED' || payload.code === 'UNAVAILABLE') &&
+          payload.retryAfterSec
+        ) {
           setCooldownUntil(Date.now() + payload.retryAfterSec * 1000)
         }
         throw new Error(payload.message ?? getFallbackErrorMessage(response))

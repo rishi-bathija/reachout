@@ -13,23 +13,17 @@
     return /accepted your invitation/i.test(text || '')
   }
 
-  function triggerViewAll(link) {
-    if (!link) return
-    try {
-      link.scrollIntoView({ block: 'center', behavior: 'instant' })
-    } catch {}
-
-    const events = [
-      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window }),
-      new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }),
-      new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }),
-      new MouseEvent('click', { bubbles: true, cancelable: true, view: window }),
-    ]
-    for (const event of events) {
-      try {
-        link.dispatchEvent(event)
-      } catch {}
+  function parseAcceptanceCount(text) {
+    if (!text) return 0
+    const match = text.match(/and\s+(\d+)\s+other/i)
+    if (match) {
+      const others = Number.parseInt(match[1], 10)
+      if (Number.isFinite(others)) {
+        return 1 + others
+      }
     }
+    if (isAcceptedInviteText(text)) return 1
+    return 0
   }
 
   function findViewAllLink(banner) {
@@ -152,7 +146,7 @@
       .filter((item) => item.name || item.profileUrl)
   }
 
-  function collectFromMyNetwork(tryExpand) {
+  function collectFromMyNetwork() {
     const found = []
     const seen = new Set()
 
@@ -165,20 +159,12 @@
       )
     }
 
+    let desiredCount = 0
     for (const banner of banners) {
-      const viewAllLink = findViewAllLinkNear(banner)
-      if (tryExpand && viewAllLink) {
-        triggerViewAll(viewAllLink)
-      } else if (tryExpand) {
-        const hasMultiple = /and\s+\d+\s+other/i.test(banner.textContent || '')
-        if (hasMultiple) {
-          try {
-            banner.scrollIntoView({ block: 'center', behavior: 'instant' })
-            banner.click()
-          } catch {}
-        }
-      }
+      desiredCount = Math.max(desiredCount, parseAcceptanceCount(banner.textContent || ''))
+    }
 
+    for (const banner of banners) {
       const items = extractFromBanner(banner)
       for (const item of items) {
         const key = item.viewAll || item.profileUrl || item.name
@@ -188,32 +174,55 @@
       }
     }
 
-    return found
+    return { acceptances: found, desiredCount }
   }
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== 'SCRAPE_MYNETWORK_ACCEPTANCES') return
-    const tryExpand = Boolean(message.expand)
-    const acceptances = collectFromMyNetwork(tryExpand)
-    if (tryExpand) {
-      const startedAt = Date.now()
-      const poll = () => {
-        const modalAcceptances = collectFromModal()
-        if (modalAcceptances.length || Date.now() - startedAt > 3000) {
-          const finalAcceptances = modalAcceptances.length ? modalAcceptances : acceptances
-          sendResponse({ acceptances: finalAcceptances })
-          return
-        }
-        setTimeout(poll, 400)
+    const { acceptances, desiredCount } = collectFromMyNetwork()
+    sendResponse({ acceptances, desiredCount })
+    return true
+  })
+
+  function collectConnectionsList(limit) {
+    const root =
+      document.querySelector('main') ||
+      document.querySelector('[role="main"]') ||
+      document.body
+    const links = Array.from(root.querySelectorAll('a[href*="/in/"]'))
+    const items = []
+    const seen = new Set()
+
+    for (const link of links) {
+      const profileUrl = normalizeProfileUrl(link.href || '')
+      if (!profileUrl) continue
+      let name = (link.textContent || '').trim()
+      if (!name) {
+        name = (link.getAttribute('aria-label') || '').trim()
       }
-      setTimeout(poll, 400)
-      return true
+      if (!name) {
+        const img = link.querySelector('img[alt]')
+        name = (img && img.getAttribute('alt')) || ''
+        name = name.trim()
+      }
+      if (!name || name.length < 2) continue
+      if (/^message$/i.test(name)) continue
+
+      if (seen.has(profileUrl)) continue
+      seen.add(profileUrl)
+      items.push({ name, profileUrl })
+      if (limit && items.length >= limit) break
     }
 
+    return items
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type !== 'SCRAPE_CONNECTIONS_LIST') return
+    const limit = Number(message.limit || 0)
+    const acceptances = collectConnectionsList(limit)
     sendResponse({ acceptances })
     return true
   })
 })()
-
-
 

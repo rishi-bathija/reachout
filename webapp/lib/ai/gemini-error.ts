@@ -30,6 +30,22 @@ function parseRetryInfo(details: unknown): number | undefined {
   return undefined
 }
 
+function parseRetryAfterHeaderSeconds(value: string | null): number | undefined {
+  if (!value) return undefined
+
+  const asSeconds = Number.parseFloat(value)
+  if (Number.isFinite(asSeconds) && asSeconds > 0) {
+    return Math.max(1, Math.ceil(asSeconds))
+  }
+
+  const asDate = Date.parse(value)
+  if (Number.isNaN(asDate)) return undefined
+
+  const seconds = Math.ceil((asDate - Date.now()) / 1000)
+  if (seconds <= 0) return undefined
+  return seconds
+}
+
 export async function mapGeminiError(response: Response): Promise<{
   status: number
   error: FriendlyGeminiError
@@ -37,7 +53,9 @@ export async function mapGeminiError(response: Response): Promise<{
   const rawText = await response.text()
 
   let upstreamMessage = 'AI service request failed.'
-  let retryAfterSec: number | undefined
+  let retryAfterSec: number | undefined = parseRetryAfterHeaderSeconds(
+    response.headers.get('retry-after')
+  )
   try {
     const parsed = JSON.parse(rawText) as {
       error?: {
@@ -47,7 +65,10 @@ export async function mapGeminiError(response: Response): Promise<{
     }
     if (parsed.error?.message) {
       upstreamMessage = parsed.error.message
-      retryAfterSec = parseRetryInfo(parsed.error.details) ?? parseRetryAfterSeconds(upstreamMessage)
+      retryAfterSec =
+        parseRetryInfo(parsed.error.details) ??
+        parseRetryAfterSeconds(upstreamMessage) ??
+        retryAfterSec
     }
   } catch {
     if (rawText.trim()) upstreamMessage = rawText
