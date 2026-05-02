@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function ExtensionLinkPage() {
+function ExtensionLinkContent() {
   const searchParams = useSearchParams()
   const token = useMemo(() => searchParams.get('token') || '', [searchParams])
   const [status, setStatus] = useState<'idle' | 'sent' | 'copied' | 'error'>('idle')
@@ -84,5 +84,26 @@ export default function ExtensionLinkPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+function ExtensionLinkFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Card className="w-full max-w-md">
+        <CardHeader>
+          <CardTitle>Connect Extension</CardTitle>
+          <CardDescription>Preparing secure link token...</CardDescription>
+        </CardHeader>
+      </Card>
+    </div>
+  )
+}
+
+export default function ExtensionLinkPage() {
+  return (
+    <Suspense fallback={<ExtensionLinkFallback />}>
+      <ExtensionLinkContent />
+    </Suspense>
   )
 }
