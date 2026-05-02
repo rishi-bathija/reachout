@@ -27,7 +27,8 @@ export async function updateSession(request: NextRequest) {
   try {
     await supabase.auth.getUser()
   } catch (error) {
-    console.error('[ReachOutFlow] Supabase auth refresh failed', error)
+    const message = error instanceof Error ? error.message : String(error)
+    console.error('[ReachOutFlow] Supabase auth refresh failed:', message)
   }
 
   return supabaseResponse
