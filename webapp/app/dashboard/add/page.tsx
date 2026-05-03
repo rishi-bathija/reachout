@@ -130,8 +130,8 @@ export default function AddConnectionPage() {
     }
   }
 
-  console.log('showsuggestion',showSuggestion);
-  console.log('existingconnection',existingConnections);
+  // console.log('showsuggestion',showSuggestion);
+  // console.log('existingconnection',existingConnections);
     
   return (
     <div className="max-w-2xl mx-auto">

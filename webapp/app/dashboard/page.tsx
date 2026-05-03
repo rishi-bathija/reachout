@@ -72,7 +72,7 @@ export default async function DashboardPage({
 
   try {
     // Direct DB query via shared helper (no internal HTTP, so no cookie/header plumbing needed).
-    console.log('[dashboard] sortBy/sortDir', { sortBy, sortDir, search, limit, page, offset })
+    // console.log('[dashboard] sortBy/sortDir', { sortBy, sortDir, search, limit, page, offset })
 
     const payload = await listConnectionsForUser(user.id, {
       search,

@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 
 type ParsedMessage = {
   sender: 'USER' | 'THEM'
@@ -320,7 +321,7 @@ export async function POST(
     // console.log('toInsert', toInsert);
 
     if (toInsert.length > 0) {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const maxOrder = await tx.message.aggregate({
           where: { connectionId: connection.id },
           _max: { orderIndex: true },
