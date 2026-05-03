@@ -14,6 +14,11 @@ type ImportConversationBody = {
   userAliases?: string
 }
 
+type TransactionClient = Omit<
+  typeof prisma,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>
+
 const HEADER_WITH_PRONOUNS = /^(.+?)\s+\(([^)]+)\)\s+\d{1,2}:\d{2}\s*(AM|PM)$/i
 const HEADER_SIMPLE = /^(.+?)\s+\d{1,2}:\d{2}\s*(AM|PM)$/i
 const DATE_SEPARATOR =
@@ -304,7 +309,7 @@ export async function POST(
     })
 
     // console.log('existingMessages', existingMessages);
-    
+
     const existingSet = new Set(
       existingMessages.map((m: { sender: string; content: string }) => `${m.sender}::${normalizeContent(m.content)}`)
     )
@@ -322,11 +327,11 @@ export async function POST(
       existingSet.add(key)
       toInsert.push(msg)
     }
-    
+
     // console.log('toInsert', toInsert);
 
     if (toInsert.length > 0) {
-      const txFn: Parameters<typeof prisma.$transaction>[0] = async (tx) => {
+      const txFn = async (tx: TransactionClient) => {
         const maxOrder = await tx.message.aggregate({
           where: { connectionId: connection.id },
           _max: { orderIndex: true },
@@ -335,8 +340,8 @@ export async function POST(
         const baseOrderIndex =
           typeof maxOrder._max.orderIndex === 'number' ? maxOrder._max.orderIndex : -1
 
-          // console.log('baseOrderIndex', baseOrderIndex);
-          
+        // console.log('baseOrderIndex', baseOrderIndex);
+
         await tx.message.createMany({
           data: toInsert.map((msg, index) => ({
             connectionId: connection.id,

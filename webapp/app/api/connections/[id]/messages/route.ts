@@ -8,6 +8,11 @@ type AddMessageBody = {
   generatedMessageId?: string
 }
 
+type TransactionClient = Omit<
+  typeof prisma,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -55,7 +60,7 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid sender' }, { status: 400 })
     }
 
-    const txFn: Parameters<typeof prisma.$transaction>[0] = async (tx) => {
+    const txFn = async (tx: TransactionClient) => {
       const maxOrder = await tx.message.aggregate({
         where: { connectionId: id },
         _max: { orderIndex: true },
