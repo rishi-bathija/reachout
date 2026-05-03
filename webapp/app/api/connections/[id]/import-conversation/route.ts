@@ -300,7 +300,7 @@ export async function POST(
     // console.log('existingMessages', existingMessages);
     
     const existingSet = new Set(
-      existingMessages.map((m) => `${m.sender}::${normalizeContent(m.content)}`)
+      existingMessages.map((m: { sender: string; content: string }) => `${m.sender}::${normalizeContent(m.content)}`)
     )
 
     // console.log('existingSet', existingSet);
