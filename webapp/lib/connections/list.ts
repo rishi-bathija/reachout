@@ -36,6 +36,17 @@ type ConnectionListMeta = {
   sortDir: 'asc' | 'desc'
 }
 
+type WhereClause = {
+  userId: string
+  OR?: Array<
+    | { name: { contains: string; mode: 'insensitive' } }
+    | { company: { contains: string; mode: 'insensitive' } }
+    | { role: { contains: string; mode: 'insensitive' } }
+    | { jobTitle: { contains: string; mode: 'insensitive' } }
+  >
+  company?: { contains: string; mode: 'insensitive' }
+}
+
 export type ConnectionListResult = {
   data: ConnectionListItem[]
   meta: ConnectionListMeta
@@ -83,7 +94,7 @@ export async function listConnectionsForUser(
   }
 
   const searchTerm = search ?? company
-  const whereClause: any = {
+  const whereClause: WhereClause = {
     userId,
     ...(searchTerm
       ? {

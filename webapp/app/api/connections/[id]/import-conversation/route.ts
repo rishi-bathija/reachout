@@ -1,13 +1,17 @@
 import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
-import type { Prisma } from '@prisma/client'
 
 type ParsedMessage = {
   sender: 'USER' | 'THEM'
   content: string
   dateLabel?: string
   timeMinutes?: number
+}
+
+type ImportConversationBody = {
+  transcript?: string
+  userAliases?: string
 }
 
 const HEADER_WITH_PRONOUNS = /^(.+?)\s+\(([^)]+)\)\s+\d{1,2}:\d{2}\s*(AM|PM)$/i
@@ -256,7 +260,7 @@ export async function POST(
     let body: unknown
     try {
       body = await request.json()
-    } catch (error: unknown) {
+    } catch {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
@@ -264,14 +268,15 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const transcript = typeof (body as any).transcript === 'string' ? (body as any).transcript.trim() : ''
+    const parsedBody = body as ImportConversationBody
+    const transcript = typeof parsedBody.transcript === 'string' ? parsedBody.transcript.trim() : ''
     if (!transcript) {
       return NextResponse.json({ error: 'Transcript is required' }, { status: 400 })
     }
 
     // console.log('transcript', transcript);
 
-    const aliasesRaw = typeof (body as any).userAliases === 'string' ? (body as any).userAliases : ''
+    const aliasesRaw = typeof parsedBody.userAliases === 'string' ? parsedBody.userAliases : ''
 
     // console.log('userAliases', aliasesRaw);
 
@@ -282,7 +287,7 @@ export async function POST(
 
     // console.log('userAliases', aliases);
 
-    const parsed = parseLinkedInTranscript((body as any).transcript, connection.name, aliases)
+    const parsed = parseLinkedInTranscript(transcript, connection.name, aliases)
 
     // console.log('parsed', parsed);
 
@@ -321,7 +326,7 @@ export async function POST(
     // console.log('toInsert', toInsert);
 
     if (toInsert.length > 0) {
-      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const txFn: Parameters<typeof prisma.$transaction>[0] = async (tx) => {
         const maxOrder = await tx.message.aggregate({
           where: { connectionId: connection.id },
           _max: { orderIndex: true },
@@ -340,7 +345,9 @@ export async function POST(
             orderIndex: baseOrderIndex + index + 1,
           })),
         })
-      })
+      }
+
+      await prisma.$transaction(txFn)
     }
 
     return NextResponse.json({

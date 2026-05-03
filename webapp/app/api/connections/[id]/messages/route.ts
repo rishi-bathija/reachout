@@ -2,6 +2,12 @@ import { createClient } from '@/lib/supabase/server'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 
+type AddMessageBody = {
+  content?: string
+  sender?: 'USER' | 'THEM'
+  generatedMessageId?: string
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -27,7 +33,7 @@ export async function POST(
     let body: unknown
     try {
       body = await request.json()
-    } catch (error: unknown) {
+    } catch {
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
     }
 
@@ -35,9 +41,11 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const content = typeof (body as any).content === 'string' ? (body as any).content.trim() : ''
-    const sender = (body as any).sender
-    const generatedMessageId = typeof (body as any).generatedMessageId === 'string' ? (body as any).generatedMessageId : undefined
+    const parsedBody = body as AddMessageBody
+    const content = typeof parsedBody.content === 'string' ? parsedBody.content.trim() : ''
+    const sender = parsedBody.sender
+    const generatedMessageId =
+      typeof parsedBody.generatedMessageId === 'string' ? parsedBody.generatedMessageId : undefined
 
     if (!content) {
       return NextResponse.json({ error: 'Message content is required' }, { status: 400 })
@@ -47,7 +55,7 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid sender' }, { status: 400 })
     }
 
-    const message = await prisma.$transaction(async (tx) => {
+    const txFn: Parameters<typeof prisma.$transaction>[0] = async (tx) => {
       const maxOrder = await tx.message.aggregate({
         where: { connectionId: id },
         _max: { orderIndex: true },
@@ -80,7 +88,9 @@ export async function POST(
       }
 
       return newMessage
-    })
+    }
+
+    const message = await prisma.$transaction(txFn)
 
     return NextResponse.json(message)
   } catch (error: unknown) {

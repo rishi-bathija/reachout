@@ -8,31 +8,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 function ExtensionLinkContent() {
   const searchParams = useSearchParams()
   const token = useMemo(() => searchParams.get('token') || '', [searchParams])
-  const [status, setStatus] = useState<'idle' | 'sent' | 'copied' | 'error'>('idle')
+  const missingToken = !token
+  const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
   const [error, setError] = useState('')
+  const displayStatus = status === 'idle' && token ? 'sent' : status
 
   useEffect(() => {
-    if (!token) {
-      setError('Missing token')
-      setStatus('error')
-      return
-    }
+    if (!token) return
 
     window.postMessage({ type: 'REACHOUTFLOW_EXTENSION_TOKEN', token }, window.location.origin)
-    setStatus('sent')
   }, [token])
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(token)
       setStatus('copied')
-    } catch (err: unknown) {
+    } catch {
       setError('Failed to copy token')
       setStatus('error')
     }
   }
 
-  if (!token) {
+  if (missingToken) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Card className="w-full max-w-md">
@@ -55,17 +52,17 @@ function ExtensionLinkContent() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {status === 'sent' && (
+          {displayStatus === 'sent' && (
             <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
               Token sent to the extension. If it did not connect, copy the token below.
             </div>
           )}
-          {status === 'copied' && (
+          {displayStatus === 'copied' && (
             <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
               Token copied. Paste it in the extension.
             </div>
           )}
-          {status === 'error' && (
+          {displayStatus === 'error' && (
             <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               {error || 'Something went wrong'}
             </div>

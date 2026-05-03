@@ -189,7 +189,7 @@ export async function generateNetworkMessage(params: {
       variation,
       text: generatedText,
     }
-  } catch (error) {
+  } catch {
     const mapped = await mapGeminiError({ status: 500, statusText: 'Internal Server Error' } as Response)
     return {
       ok: false as const,
